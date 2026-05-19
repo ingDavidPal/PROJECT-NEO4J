@@ -1,0 +1,180 @@
+name,description,query,id,parentId,isFolder
+PROJECTE NEO4J - PADRONS_Exercici_1,,"// PROJECTE NEO4J - PADRONS
+// EXERCICI 1: CARREGA DE DADES
+
+// 0. Constraints i indexos
+// Cada individu queda identificat pel seu Id.
+CREATE CONSTRAINT individu_id IF NOT EXISTS
+FOR (i:Individu)
+REQUIRE i.id IS UNIQUE;
+
+// Cada habitatge queda identificat per municipi + any + id de llar.
+// Com que Id_Llar es pot repetir en anys o municipis diferents, creem una clau artificial anomenada id_habitatge.
+CREATE CONSTRAINT habitatge_id IF NOT EXISTS
+FOR (h:Habitatge)
+REQUIRE h.id_habitatge IS UNIQUE;
+
+// Indexos útils per accelerar consultes posteriors.
+CREATE INDEX individu_nom IF NOT EXISTS
+FOR (i:Individu)
+ON (i.nom);
+
+CREATE INDEX individu_cognoms IF NOT EXISTS
+FOR (i:Individu)
+ON (i.cognom1, i.cognom2);
+
+CREATE INDEX individu_any IF NOT EXISTS
+FOR (i:Individu)
+ON (i.any_padro);
+
+CREATE INDEX habitatge_municipi_any IF NOT EXISTS
+FOR (h:Habitatge)
+ON (h.municipi, h.any_padro);
+
+CREATE INDEX habitatge_carrer IF NOT EXISTS
+FOR (h:Habitatge)
+ON (h.carrer);
+
+
+// 1. Carrega dels nodes Individu
+LOAD CSV WITH HEADERS FROM 'file:///INDIVIDUAL.csv' AS row
+WITH row
+WHERE row.Id IS NOT NULL
+  AND trim(row.Id) <> ''
+  AND toLower(trim(row.Id)) <> 'null'
+  AND row.Year IS NOT NULL
+  AND trim(row.Year) <> ''
+MERGE (i:Individu {id: toInteger(row.Id)})
+SET
+    i.any_padro = toInteger(row.Year),
+
+    i.nom =
+        CASE
+            WHEN row.name IS NULL OR trim(row.name) = '' OR toLower(trim(row.name)) IN ['null', 'nan']
+            THEN null
+            ELSE toLower(trim(row.name))
+        END,
+
+    i.cognom1 =
+        CASE
+            WHEN row.surname IS NULL OR trim(row.surname) = '' OR toLower(trim(row.surname)) IN ['null', 'nan']
+            THEN null
+            ELSE toLower(trim(row.surname))
+        END,
+
+    i.cognom2 =
+        CASE
+            WHEN row.second_surname IS NULL OR trim(row.second_surname) = '' OR toLower(trim(row.second_surname)) IN ['null', 'nan']
+            THEN null
+            ELSE toLower(trim(row.second_surname))
+        END;
+
+
+// 2. Carrega dels nodes Habitatge
+LOAD CSV WITH HEADERS FROM 'file:///HABITATGES.csv' AS row
+WITH row
+WHERE row.Municipi IS NOT NULL
+  AND trim(row.Municipi) <> ''
+  AND toLower(trim(row.Municipi)) <> 'null'
+  AND row.Id_Llar IS NOT NULL
+  AND trim(row.Id_Llar) <> ''
+  AND row.Any_Padro IS NOT NULL
+  AND trim(row.Any_Padro) <> ''
+WITH
+    row,
+    toUpper(trim(row.Municipi)) AS municipi,
+    toInteger(row.Id_Llar) AS id_llar,
+    toInteger(row.Any_Padro) AS any_padro
+MERGE (h:Habitatge {
+    id_habitatge: municipi + '_' + toString(any_padro) + '_' + toString(id_llar)
+})
+SET
+    h.municipi = municipi,
+    h.id_llar = id_llar,
+    h.any_padro = any_padro,
+
+    h.carrer =
+        CASE
+            WHEN row.Carrer IS NULL OR trim(row.Carrer) = '' OR toLower(trim(row.Carrer)) IN ['null', 'nan']
+            THEN null
+            ELSE toLower(trim(row.Carrer))
+        END,
+
+    h.numero =
+        CASE
+            WHEN row.Numero IS NULL OR trim(row.Numero) = '' OR toLower(trim(row.Numero)) IN ['null', 'nan']
+            THEN null
+            ELSE toInteger(toFloat(row.Numero))
+        END;
+
+
+// 3. Carrega de la relacio VIU
+LOAD CSV WITH HEADERS FROM 'file:///VIU.csv' AS row
+WITH row
+WHERE row.IND IS NOT NULL
+  AND trim(row.IND) <> ''
+  AND row.Location IS NOT NULL
+  AND trim(row.Location) <> ''
+  AND row.Year IS NOT NULL
+  AND trim(row.Year) <> ''
+  AND row.HOUSE_ID IS NOT NULL
+  AND trim(row.HOUSE_ID) <> ''
+WITH
+    row,
+    toInteger(row.IND) AS id_individu,
+    toUpper(trim(row.Location)) AS municipi,
+    toInteger(row.Year) AS any_padro,
+    toInteger(row.HOUSE_ID) AS id_llar
+MATCH (i:Individu {id: id_individu})
+MATCH (h:Habitatge {
+    id_habitatge: municipi + '_' + toString(any_padro) + '_' + toString(id_llar)
+})
+MERGE (i)-[r:VIU]->(h)
+SET
+    r.municipi = municipi,
+    r.any_padro = any_padro;
+
+
+// 4. Carrega de la relacio FAMILIA
+LOAD CSV WITH HEADERS FROM 'file:///FAMILIA.csv' AS row
+WITH row
+WHERE row.ID_1 IS NOT NULL
+  AND trim(row.ID_1) <> ''
+  AND row.ID_2 IS NOT NULL
+  AND trim(row.ID_2) <> ''
+WITH
+    row,
+    toInteger(row.ID_1) AS id_1,
+    toInteger(row.ID_2) AS id_2
+MATCH (i1:Individu {id: id_1})
+MATCH (i2:Individu {id: id_2})
+MERGE (i1)-[r:FAMILIA]->(i2)
+SET
+    r.relacio_original =
+        CASE
+            WHEN row.Relacio IS NULL OR trim(row.Relacio) = '' OR toLower(trim(row.Relacio)) IN ['null', 'nan']
+            THEN null
+            ELSE toLower(trim(row.Relacio))
+        END,
+
+    r.relacio_harmonitzada =
+        CASE
+            WHEN row.Relacio_Harmonitzada IS NULL OR trim(row.Relacio_Harmonitzada) = '' OR toLower(trim(row.Relacio_Harmonitzada)) IN ['null', 'nan']
+            THEN null
+            ELSE toLower(trim(row.Relacio_Harmonitzada))
+        END;
+
+
+// 5. Carrega de la relacio SAME_AS
+LOAD CSV WITH HEADERS FROM 'file:///SAME_AS.csv' AS row
+WITH row
+WHERE row.Id_A IS NOT NULL
+  AND trim(row.Id_A) <> ''
+  AND row.Id_B IS NOT NULL
+  AND trim(row.Id_B) <> ''
+WITH
+    toInteger(row.Id_A) AS id_a,
+    toInteger(row.Id_B) AS id_b
+MATCH (a:Individu {id: id_a})
+MATCH (b:Individu {id: id_b})
+MERGE (a)-[:SAME_AS]->(b);",0,,false
